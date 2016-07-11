@@ -112,10 +112,9 @@ public class SbApi extends AbstractVerticle {
      * <li>AZURE_SB_KEY - servicebus access key; system, env; required</li>
      * <li>AZURE_SB_NAMESPACE - servicebus namespace; system, env; required</li>
      * <li>AZURE_SB_LISTEN_QUEUE_NAME - servicebus queue to listen; config, system, env; optional</li>
-     * <li>EB_RECEIVE_ADDRESS</li> - eventbus address to which received messages are sent; config, default; optional
-     * <li>EB_SEND_ADDRESS</li> - eventbus address which is listened for messages to be sent to Azure ServiceBus; config, default; optional
+     * <li>EB_RECEIVE_ADDRESS - eventbus address to which received messages are sent; config, default; optional</li>
+     * <li>EB_SEND_ADDRESS - eventbus address which is listened for messages to be sent to Azure ServiceBus; config, default; optional</li>
      * <li>AZURE_SB_INBOUND_DISPATCH_MODE - how verticle should dispatch received message; config, system, env; optional</li>
-     * <li></li>
      * </ul>
      *
      * @param config verticle config
