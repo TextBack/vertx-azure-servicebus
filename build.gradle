@@ -1,5 +1,7 @@
 plugins {
     id 'java'
+    id 'maven-publish'
+    id "com.jfrog.bintray" version "1.7"
 }
 
 
@@ -25,6 +27,57 @@ repositories {
     maven {
         name 'jboss'
         url 'http://repository.jboss.org/nexus/content/groups/public-jboss'
+    }
+}
+
+// custom tasks for creating source/javadoc jars
+task sourcesJar(type: Jar, dependsOn: classes) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    classifier = 'javadoc'
+    from javadoc.destinationDir
+}
+
+// add javadoc/source jar tasks as artifacts
+artifacts {
+    archives sourcesJar, javadocJar
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            artifact sourcesJar
+            artifact javadocJar
+        }
+    }
+}
+
+bintray {
+    user = System.getenv('tb_user')
+    key = System.getenv('tb_api_key')
+
+    publications = ['mavenJava']
+    dryRun = false
+    publish = true
+    pkg {
+        repo = 'maven'
+        userOrg = 'textback'
+        name = project.name
+        desc = project.description
+        websiteUrl = 'https://textback.io'
+        issueTrackerUrl = 'https://github.com/TextBack/vertx-azure-servicebus/issues'
+        vcsUrl = 'https://github.com/TextBack/vertx-azure-servicebus'
+        licenses = ['Apache-2.0']
+        labels = ['vertx', 'azure', 'servicebus']
+        publicDownloadNumbers = true
+        override = true
+        //Optional version descriptor
+        version {
+        }
     }
 }
 
