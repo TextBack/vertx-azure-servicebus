@@ -3,19 +3,19 @@ package textback.servicebus;
 import com.microsoft.applicationinsights.TelemetryClient;
 import com.microsoft.applicationinsights.internal.schemav2.DependencyKind;
 import com.microsoft.applicationinsights.telemetry.Duration;
+import com.microsoft.applicationinsights.telemetry.MetricTelemetry;
 import com.microsoft.applicationinsights.telemetry.RemoteDependencyTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Context;
 import io.vertx.core.Vertx;
-import io.vertx.core.eventbus.DeliveryOptions;
-import io.vertx.core.eventbus.EventBus;
-import io.vertx.core.eventbus.Message;
+import io.vertx.core.eventbus.*;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 
@@ -80,6 +80,10 @@ public class SbApi extends AbstractVerticle {
      * Wait for response timeout
      */
     long responseTimeout = 13000;
+
+    long eventbusTimeout = 60000;
+
+    EventbusTimeoutAction defaultEventbusTimeoutAction = EventbusTimeoutAction.RELEASE_LOCK;
 
     // tmp var
     private String baseQueueAddress;
@@ -187,8 +191,8 @@ public class SbApi extends AbstractVerticle {
             }
         }
         httpPollClient = vertx.createHttpClient(new HttpClientOptions().setSsl(true).setMaxPoolSize(1)
-                        .setKeepAlive(true)
-                        .setVerifyHost(false)
+                .setKeepAlive(true)
+                .setVerifyHost(false)
         );
     }
 
@@ -200,13 +204,13 @@ public class SbApi extends AbstractVerticle {
             }
         }
         httpSendClient = vertx.createHttpClient(new HttpClientOptions().setSsl(true).setMaxPoolSize(1)
-                        .setKeepAlive(true)
-                        .setVerifyHost(false)
+                .setKeepAlive(true)
+                .setVerifyHost(false)
         );
     }
 
     private void peekFromQueue() {
-        int requestId = random.nextInt();
+        String requestId = RandomStringUtils.randomAlphanumeric(8);
         // if this request has been rescheduled after end or error
         final boolean[] rescheduled = {false};
         checkSas();
@@ -247,11 +251,38 @@ public class SbApi extends AbstractVerticle {
                     }
                     if (inboundDispatchMode == InboundDispatchMode.SEND_TO_MESSAGE_ID_RECEIVE_ADDRESS ||
                             inboundDispatchMode == InboundDispatchMode.SEND_TO_VERTICLE_RECEIVE_ADDRESS) {
+                        StopWatch eventbusProcessingTimer = new StopWatch();
+                        eventbusProcessingTimer.start();
+                        final String finalAddress = address;
                         eventBus.send(address, body, deliveryOptions, (AsyncResult<Message<Object>> result) -> {
+                            stopWatch.stop();
+                            MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", stopWatch.getTime());
+                            mt.getContext().getOperation().setId(String.valueOf(requestId));
+                            telemetryClient.trackMetric(mt);
                             if (result.succeeded()) {
                                 deleteMessage(requestId, messageUri);
                             } else {
-                                releaseLock(requestId, messageUri);
+                                if (result.cause() instanceof ReplyException) {
+                                    ReplyException replyException = (ReplyException) result.cause();
+                                    if (replyException.failureType() == ReplyFailure.TIMEOUT) {
+                                        switch (defaultEventbusTimeoutAction) {
+                                            case DELETE: {
+                                                LOG.traceDeletedMessageBecauseOfEventbusTimeout(requestId);
+                                                deleteMessage(requestId, messageUri);
+                                                break;
+                                            }
+                                            case RELEASE_LOCK:
+                                            default: {
+                                                LOG.traceReleaseLockOnMessageBecauseOfEventbusTimeout(requestId);
+                                                releaseLock(requestId, messageUri);
+                                            }
+                                        }
+                                    } else {
+                                        releaseLock(requestId, messageUri);
+                                    }
+                                } else {
+                                    releaseLock(requestId, messageUri);
+                                }
                             }
                         });
                     } else {
@@ -326,7 +357,7 @@ public class SbApi extends AbstractVerticle {
                 .end();
     }
 
-    private void releaseLock(int requestId, String messageUri) {
+    private void releaseLock(String requestId, String messageUri) {
         // release lock
         httpPollClient.putAbs(messageUri, (deleteResponse) ->
                 LOG.traceUnlockedMessageWithStatusCode(deleteResponse.statusCode(), deleteResponse.statusMessage(), requestId))
@@ -335,7 +366,7 @@ public class SbApi extends AbstractVerticle {
                 .end();
     }
 
-    private void deleteMessage(int requestId, String messageUri) {
+    private void deleteMessage(String requestId, String messageUri) {
         // delete message
         httpPollClient.deleteAbs(messageUri, (deleteResponse) ->
                 LOG.traceDeletedMessageWithStatusCode(deleteResponse.statusCode(), deleteResponse.statusMessage(), requestId))

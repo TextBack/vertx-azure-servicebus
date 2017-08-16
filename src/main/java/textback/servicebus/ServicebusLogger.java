@@ -67,16 +67,16 @@ public interface ServicebusLogger extends BasicLogger {
 
 
     @LogMessage(level = Logger.Level.WARN)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4101, value = "Cannot poll message from ServiceBus because of API error: statusCode = {0}, statusLine = {1}, headers: {2} [{3,number,#}]")
-    void cantPeekServiceBusMessageBecauseOfAPIError(int code, String message, String headers, int requestId);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4101, value = "Cannot poll message from ServiceBus because of API error: statusCode = {0}, statusLine = {1}, headers: {2} {3}")
+    void cantPeekServiceBusMessageBecauseOfAPIError(int code, String message, String headers, String requestId);
 
     @LogMessage(level = Logger.Level.WARN)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4102, value = "Cannot poll message from ServiceBus because of API exception [{0,number,#}] ")
-    void cantPeekServiceBusMessageBecauseOfException(int requestId, @Cause Throwable e);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4102, value = "Cannot poll message from ServiceBus because of API exception {0} ")
+    void cantPeekServiceBusMessageBecauseOfException(String requestId, @Cause Throwable e);
 
     @LogMessage(level = Logger.Level.WARN)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4103, value = "Cannot poll message from ServiceBus because of exception in reading response [{0,number,#}]")
-    void cantPeekServiceBusMessageBecauseOfExceptionReadingResponse(int requestId, @Cause Throwable e);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4103, value = "Cannot poll message from ServiceBus because of exception in reading response {0}")
+    void cantPeekServiceBusMessageBecauseOfExceptionReadingResponse(String requestId, @Cause Throwable e);
 
     @LogMessage(level = Logger.Level.INFO)
     @Message(format = Message.Format.MESSAGE_FORMAT, id = 6001, value = "Created new SAS token: keyname = {0}, key (trimmed) = {1}, VALID_TO = {2}")
@@ -102,23 +102,30 @@ public interface ServicebusLogger extends BasicLogger {
 
 
     @LogMessage(level = Logger.Level.TRACE)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9010, value = "Started polling queue: {0} [{1,number,#}]")
-    void tracePeekingMessageFromQueue(String queueName, int requestId);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9010, value = "Started polling queue: {0} {1}")
+    void tracePeekingMessageFromQueue(String queueName, String requestId);
 
     @LogMessage(level = Logger.Level.TRACE)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9011, value = "Got message from queue: {0}, Message: {1}, Headers: {2} [{3,number,#}]")
-    void tracePeekMessageFromQueue(String queueName, String body, String headers, int requestId);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9011, value = "Got message from queue: {0}, Message: {1}, Headers: {2} {3}")
+    void tracePeekMessageFromQueue(String queueName, String body, String headers, String requestId);
 
     @LogMessage(level = Logger.Level.TRACE)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9012, value = "Got no message from queue after timeout: {0}, Headers {1} [{2,number,#}] ")
-    void tracePeekNoMessageFromQueue(String queueName, String headers, int requestId);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9012, value = "Got no message from queue after timeout: {0}, Headers {1} {2} ")
+    void tracePeekNoMessageFromQueue(String queueName, String headers, String requestId);
 
     @LogMessage(level = Logger.Level.TRACE)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9013, value = "Deleted message after peek. Code: {0}, Status: {1} [{2,number,#}] ")
-    void traceDeletedMessageWithStatusCode(int code, String status, int requestId);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9013, value = "Deleted message after peek. Code: {0}, Status: {1} {2}")
+    void traceDeletedMessageWithStatusCode(int code, String status, String requestId);
 
     @LogMessage(level = Logger.Level.TRACE)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9014, value = "Unlocked message after peek. Code: {0}, Status: {1} [{2,number,#}] ")
-    void traceUnlockedMessageWithStatusCode(int code, String status, int requestId);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9014, value = "Unlocked message after peek. Code: {0}, Status: {1} {2} ")
+    void traceUnlockedMessageWithStatusCode(int code, String status, String requestId);
 
+    @LogMessage(level = Logger.Level.TRACE)
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9015, value = "Deleted message because of eventbus timeout {0} ")
+    void traceDeletedMessageBecauseOfEventbusTimeout(String requestId);
+
+    @LogMessage(level = Logger.Level.TRACE)
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9016, value = "Released lock on message because of eventbus timeout {0} ")
+    void traceReleaseLockOnMessageBecauseOfEventbusTimeout(String requestId);
 }
