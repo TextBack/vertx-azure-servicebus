@@ -74,7 +74,6 @@ bintray {
         licenses = ['Apache-2.0']
         labels = ['vertx', 'azure', 'servicebus']
         publicDownloadNumbers = true
-        override = true
         //Optional version descriptor
         version {
         }
