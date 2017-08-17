@@ -283,7 +283,7 @@ public class SbApi extends AbstractVerticle {
                         eventbusProcessingTimer.start();
                         final String finalAddress = address;
                         eventBus.send(address, body, deliveryOptions, (AsyncResult<Message<Object>> result) -> {
-                            stopWatch.stop();
+                            eventbusProcessingTimer.stop();
                             MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", stopWatch.getTime());
                             mt.getContext().getOperation().setId(String.valueOf(requestId));
                             telemetryClient.trackMetric(mt);
