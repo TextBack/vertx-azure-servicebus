@@ -354,7 +354,7 @@ public class SbApi extends AbstractVerticle {
                 });
             } else if (httpClientResponse.statusCode() == 204) {
                 LOG.tracePeekNoMessageFromQueue(listenQueueName, headers.toString(), requestId);
-                telemetry.setSuccess(false);
+                telemetry.setSuccess(true);
                 telemetry.setResultCode("204");
                 telemetryClient.trackDependency(telemetry);
                 if (!rescheduled[0]) {
