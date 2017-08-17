@@ -15,6 +15,7 @@ import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
+import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
@@ -44,6 +45,11 @@ public class SbApi extends AbstractVerticle {
     public final static String DEFAULT_RECEIVED_MESSAGE_ADDRESS = DEFAULT_BASE_ADDRESS + "receivedMessage";
 
     private static final String SERVICEBUS_BASE_DOMAIN = ".servicebus.windows.net";
+
+    /**
+     * Azure default lock time is 60s, so give 5 sec to respond
+     */
+    public static final int DEFAULT_EVENTBUS_TIMEOUT = 55000;
 
     /**
      * Event bus address where received messages are sent to
@@ -81,9 +87,9 @@ public class SbApi extends AbstractVerticle {
      */
     long responseTimeout = 13000;
 
-    long eventbusTimeout = 60000;
+    long eventbusTimeout;
 
-    EventbusTimeoutAction defaultEventbusTimeoutAction = EventbusTimeoutAction.RELEASE_LOCK;
+    EventbusTimeoutAction defaultEventbusTimeoutAction;
 
     // tmp var
     private String baseQueueAddress;
@@ -146,6 +152,10 @@ public class SbApi extends AbstractVerticle {
         if (config.containsKey("AZURE_SB_INBOUND_DISPATCH_MODE")) {
             inboundDispatchMode = InboundDispatchMode.valueOf(config.getString("AZURE_SB_INBOUND_DISPATCH_MODE"));
         }
+        defaultEventbusTimeoutAction = EnumUtils.getEnum(EventbusTimeoutAction.class, getConfigProperty("AZURE_SB_DEFAULT_EVENTBUS_TIMEOUT_ACTION", config, EventbusTimeoutAction.RELEASE_LOCK.toString()));
+
+        eventbusTimeout = Long.parseLong(getConfigProperty("AZURE_SB_EVENTBUS_TIMEOUT", config, String.valueOf(DEFAULT_EVENTBUS_TIMEOUT)));
+
         boolean invalidConfig = false;
         if (keyName == null) {
             LOG.invalidConfigPropertyNotSet("AZURE_SB_KEYNAME");
@@ -165,11 +175,29 @@ public class SbApi extends AbstractVerticle {
         if (sendQueueName == null) {
             LOG.invalidConfigPropertyNotSet("AZURE_SB_SEND_QUEUE_NAME");
         }
+
         if (invalidConfig) {
             throw new RuntimeException("Invalid Config");
         }
 
         baseQueueAddress = "https://" + namespace + SERVICEBUS_BASE_DOMAIN + "/";
+    }
+
+    private String getConfigProperty(String name, JsonObject config, String defaultValue) {
+        if (config.containsKey(name)) {
+            return config.getString(name);
+        } else {
+            String value = System.getProperty(name);
+            if (value == null) {
+                if (System.getenv().containsKey(name)) {
+                    value = System.getenv(name);
+                }
+            }
+            if (value == null) {
+                value = defaultValue;
+            }
+            return value;
+        }
     }
 
 
