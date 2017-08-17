@@ -286,10 +286,12 @@ public class SbApi extends AbstractVerticle {
                             eventbusProcessingTimer.stop();
                             MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", stopWatch.getTime());
                             mt.getContext().getOperation().setId(String.valueOf(requestId));
-                            telemetryClient.trackMetric(mt);
                             if (result.succeeded()) {
                                 deleteMessage(requestId, messageUri);
                             } else {
+                                mt.getProperties().put("success","false");
+                                mt.getProperties().put("cause",result.cause().toString());
+                                telemetryClient.trackMetric(mt);
                                 if (result.cause() instanceof ReplyException) {
                                     ReplyException replyException = (ReplyException) result.cause();
                                     if (replyException.failureType() == ReplyFailure.TIMEOUT) {
