@@ -58,12 +58,12 @@ public interface ServicebusLogger extends BasicLogger {
     void cantSendServiceBusMessageBecauseOfEmptySAS();
 
     @LogMessage(level = Logger.Level.WARN)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4001, value = "Cannot send message to ServiceBus because of API error: statusCode = {0}, statusLine = {1}, headers = {2}")
-    void cantSendServiceBusMessageBecauseOfAPIError(int code, String message, String headers);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4001, value = "[{3}] Cannot send message to ServiceBus because of API error: statusCode = {0}, statusLine = {1}, headers = {2}")
+    void cantSendServiceBusMessageBecauseOfAPIError(int code, String message, String headers, String requestId);
 
     @LogMessage(level = Logger.Level.WARN)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4002, value = "Cannot send message to ServiceBus because of API exception")
-    void cantSendServiceBusMessageBecauseOfException(@Cause Throwable e);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 4002, value = "[{0}] Cannot send message to ServiceBus because of API exception")
+    void cantSendServiceBusMessageBecauseOfException(String requestId, @Cause Throwable e);
 
 
     @LogMessage(level = Logger.Level.WARN)
@@ -92,13 +92,13 @@ public interface ServicebusLogger extends BasicLogger {
 
 
     @LogMessage(level = Logger.Level.TRACE)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9000, value = "Sending message to queue: {0}, Message: {1}")
-    void traceSendingMessageToQueue(String queueName, String body);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9000, value = "[{2}] Sending message to queue: {0}, Message: {1}")
+    void traceSendingMessageToQueue(String queueName, String body, String requestId);
 
 
     @LogMessage(level = Logger.Level.TRACE)
-    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9001, value = "Sent message to queue: {0}, Message: {1}, Headers: {2}")
-    void traceSentMessageToQueue(String queueName, String body, String headers);
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9001, value = "[{3}] Sent message to queue: {0}, Message: {1}, Headers: {2}")
+    void traceSentMessageToQueue(String queueName, String body, String headers, String requestId);
 
 
     @LogMessage(level = Logger.Level.TRACE)

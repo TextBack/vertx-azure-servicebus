@@ -2,9 +2,7 @@ package textback.servicebus;
 
 import com.microsoft.applicationinsights.TelemetryClient;
 import com.microsoft.applicationinsights.internal.schemav2.DependencyKind;
-import com.microsoft.applicationinsights.telemetry.Duration;
-import com.microsoft.applicationinsights.telemetry.MetricTelemetry;
-import com.microsoft.applicationinsights.telemetry.RemoteDependencyTelemetry;
+import com.microsoft.applicationinsights.telemetry.*;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Context;
@@ -13,7 +11,6 @@ import io.vertx.core.eventbus.*;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpClientRequest;
-import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -22,7 +19,6 @@ import org.apache.commons.lang3.time.StopWatch;
 
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
-import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeoutException;
 
@@ -177,7 +173,11 @@ public class SbApi extends AbstractVerticle {
         }
 
         if (invalidConfig) {
-            throw new RuntimeException("Invalid Config");
+            RuntimeException e = new RuntimeException("Invalid Config");
+            ExceptionTelemetry exceptionTelemetry = new ExceptionTelemetry(e);
+            exceptionTelemetry.setSeverityLevel(SeverityLevel.Critical);
+            telemetryClient.trackException(exceptionTelemetry);
+            throw e;
         }
 
         baseQueueAddress = "https://" + namespace + SERVICEBUS_BASE_DOMAIN + "/";
@@ -221,6 +221,7 @@ public class SbApi extends AbstractVerticle {
         httpPollClient = vertx.createHttpClient(new HttpClientOptions().setSsl(true).setMaxPoolSize(1)
                 .setKeepAlive(true)
                 .setVerifyHost(false)
+                .setMetricsName("sb.poll")
         );
     }
 
@@ -234,6 +235,7 @@ public class SbApi extends AbstractVerticle {
         httpSendClient = vertx.createHttpClient(new HttpClientOptions().setSsl(true).setMaxPoolSize(1)
                 .setKeepAlive(true)
                 .setVerifyHost(false)
+                .setMetricsName("sb.send")
         );
     }
 
@@ -252,23 +254,26 @@ public class SbApi extends AbstractVerticle {
         String apiUri = "/" + listenQueueName + "/messages/head" + "?timeout=" + peekTimeout / 1000;
 
         LOG.tracePeekingMessageFromQueue(listenQueueName, requestId);
-        StopWatch stopWatch = new StopWatch();
-        stopWatch.start();
+        RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue");
+        telemetry.setCommandName("peek");
+        telemetry.setDependencyKind(DependencyKind.Http);
+        telemetry.getContext().getProperties().put("queueName", listenQueueName);
+        telemetry.getContext().getOperation().setId(requestId);
+
         httpPollClient.post(443, namespace + SERVICEBUS_BASE_DOMAIN, apiUri, (httpClientResponse) -> {
             StringBuilder headers = new StringBuilder();
             httpClientResponse.headers().forEach(
                     (entry) -> headers.append(entry.getKey()).append(" = ").append(entry.getValue()).append("; ")
             );
-            stopWatch.stop();
             if (httpClientResponse.statusCode() == 201) {
                 String messageUri = httpClientResponse.headers().get("location");
                 // peeked
                 httpClientResponse.bodyHandler((buffer) -> {
                     String body = buffer.toString(StandardCharsets.UTF_8.name());
                     LOG.tracePeekMessageFromQueue(listenQueueName, body, headers.toString(), requestId);
-                    telemetryClient.getContext().getTags().put("queueName", listenQueueName);
-                    telemetryClient.trackDependency("sb.queue", "peek", new Duration(stopWatch.getTime()), true);
-                    telemetryClient.getContext().getTags().remove("queueName");
+                    telemetry.setSuccess(true);
+                    telemetry.setResultCode("201");
+                    telemetryClient.trackDependency(telemetry);
                     DeliveryOptions deliveryOptions = new DeliveryOptions();
                     deliveryOptions.addHeader("queueName", listenQueueName);
                     httpClientResponse.headers().entries().forEach((entry) -> deliveryOptions.addHeader(entry.getKey(), entry.getValue()));
@@ -284,7 +289,7 @@ public class SbApi extends AbstractVerticle {
                         final String finalAddress = address;
                         eventBus.send(address, body, deliveryOptions, (AsyncResult<Message<Object>> result) -> {
                             eventbusProcessingTimer.stop();
-                            MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", stopWatch.getTime());
+                            MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", eventbusProcessingTimer.getTime());
                             mt.getContext().getOperation().setId(String.valueOf(requestId));
                             if (result.succeeded()) {
                                 mt.getProperties().put("success", "true");
@@ -328,11 +333,15 @@ public class SbApi extends AbstractVerticle {
                     return;
                 });
                 httpClientResponse.exceptionHandler((e) -> {
-                    RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue", "peek", new Duration(stopWatch.getTime()), false);
-                    telemetryClient.getContext().getTags().put("queueName", listenQueueName);
+                    telemetry.setSuccess(false);
+                    telemetry.setResultCode(e.toString());
                     telemetryClient.trackDependency(telemetry);
-                    telemetryClient.getContext().getTags().remove("queueName");
                     LOG.cantPeekServiceBusMessageBecauseOfExceptionReadingResponse(requestId, e);
+                    ExceptionTelemetry exceptionTelemetry = new ExceptionTelemetry(e);
+                    exceptionTelemetry.setExceptionHandledAt(ExceptionHandledAt.Platform);
+                    exceptionTelemetry.setSeverityLevel(SeverityLevel.Warning);
+                    exceptionTelemetry.getContext().getOperation().setId(requestId);
+                    telemetryClient.trackException(exceptionTelemetry);
                     if (e instanceof TimeoutException) {
                         // reconnect client
                         recreatePollClient();
@@ -345,19 +354,18 @@ public class SbApi extends AbstractVerticle {
                 });
             } else if (httpClientResponse.statusCode() == 204) {
                 LOG.tracePeekNoMessageFromQueue(listenQueueName, headers.toString(), requestId);
-                telemetryClient.trackDependency("sb.queue", "peek", new Duration(stopWatch.getTime()), true);
+                telemetry.setSuccess(false);
+                telemetry.setResultCode("204");
+                telemetryClient.trackDependency(telemetry);
                 if (!rescheduled[0]) {
                     rescheduled[0] = true;
                     peekFromQueue();
                 }
                 return;
             } else {
-                RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue", "peek", new Duration(stopWatch.getTime()), false);
-                telemetry.setAsync(true);
-                telemetry.setDependencyKind(DependencyKind.Http);
-                telemetryClient.getContext().getTags().put("queueName", listenQueueName);
+                telemetry.setSuccess(false);
+                telemetry.setResultCode(String.valueOf(httpClientResponse.statusCode()));
                 telemetryClient.trackDependency(telemetry);
-                telemetryClient.getContext().getTags().remove("queueName");
                 LOG.cantPeekServiceBusMessageBecauseOfAPIError(httpClientResponse.statusCode(), httpClientResponse.statusMessage(), headers.toString(), requestId);
                 if (!rescheduled[0]) {
                     rescheduled[0] = true;
@@ -367,10 +375,14 @@ public class SbApi extends AbstractVerticle {
             }
         })
                 .exceptionHandler((e) -> {
-                    RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue", "peek", new Duration(stopWatch.getTime()), false);
-                    telemetryClient.getContext().getTags().put("queueName", listenQueueName);
+                    telemetry.setSuccess(false);
+                    telemetry.setResultCode(e.toString());
                     telemetryClient.trackDependency(telemetry);
-                    telemetryClient.getContext().getTags().remove("queueName");
+                    ExceptionTelemetry exceptionTelemetry = new ExceptionTelemetry(e);
+                    exceptionTelemetry.setExceptionHandledAt(ExceptionHandledAt.Platform);
+                    exceptionTelemetry.setSeverityLevel(SeverityLevel.Warning);
+                    exceptionTelemetry.getContext().getOperation().setId(requestId);
+                    telemetryClient.trackException(exceptionTelemetry);
                     LOG.cantPeekServiceBusMessageBecauseOfException(requestId, e);
                     if (e instanceof TimeoutException) {
                         // reconnect client
@@ -390,18 +402,67 @@ public class SbApi extends AbstractVerticle {
     }
 
     private void releaseLock(String requestId, String messageUri) {
-        // release lock
-        httpPollClient.putAbs(messageUri, (deleteResponse) ->
-                LOG.traceUnlockedMessageWithStatusCode(deleteResponse.statusCode(), deleteResponse.statusMessage(), requestId))
+        RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue");
+        telemetry.setCommandName("release");
+        telemetry.setDependencyKind(DependencyKind.Http);
+        telemetry.getContext().getOperation().setId(requestId);
+
+        final StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        httpPollClient.putAbs(messageUri, (deleteResponse) -> {
+            stopWatch.stop();
+            telemetry.setDuration(new Duration(stopWatch.getTime()));
+            telemetry.setSuccess(deleteResponse.statusCode() / 100 == 2);
+            telemetry.setResultCode(String.valueOf(deleteResponse.statusCode()));
+            telemetryClient.trackDependency(telemetry);
+            LOG.traceUnlockedMessageWithStatusCode(deleteResponse.statusCode(), deleteResponse.statusMessage(), requestId);
+        }).exceptionHandler(throwable -> {
+            stopWatch.stop();
+            telemetry.setDuration(new Duration(stopWatch.getTime()));
+            telemetry.setSuccess(false);
+            telemetry.setResultCode(throwable.toString());
+            ExceptionTelemetry exceptionTelemetry = new ExceptionTelemetry(throwable);
+            exceptionTelemetry.setExceptionHandledAt(ExceptionHandledAt.Platform);
+            exceptionTelemetry.setSeverityLevel(SeverityLevel.Warning);
+            exceptionTelemetry.getContext().getOperation().setId(requestId);
+            telemetryClient.trackException(exceptionTelemetry);
+            telemetryClient.trackDependency(telemetry);
+        })
                 .putHeader("authorization", sas.token)
                 .putHeader("content-length", String.valueOf(0))
                 .end();
     }
 
     private void deleteMessage(String requestId, String messageUri) {
+        RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue");
+        telemetry.setCommandName("delete");
+        telemetry.setDependencyKind(DependencyKind.Http);
+        telemetry.getContext().getOperation().setId(requestId);
+
+        final StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+
         // delete message
-        httpPollClient.deleteAbs(messageUri, (deleteResponse) ->
-                LOG.traceDeletedMessageWithStatusCode(deleteResponse.statusCode(), deleteResponse.statusMessage(), requestId))
+        httpPollClient.deleteAbs(messageUri, (deleteResponse) -> {
+            stopWatch.stop();
+            telemetry.setDuration(new Duration(stopWatch.getTime()));
+            telemetry.setSuccess(deleteResponse.statusCode() / 100 == 2);
+            telemetry.setResultCode(String.valueOf(deleteResponse.statusCode()));
+            telemetryClient.trackDependency(telemetry);
+            LOG.traceDeletedMessageWithStatusCode(deleteResponse.statusCode(), deleteResponse.statusMessage(), requestId);
+        })
+                .exceptionHandler(throwable -> {
+                    stopWatch.stop();
+                    telemetry.setDuration(new Duration(stopWatch.getTime()));
+                    telemetry.setSuccess(false);
+                    telemetry.setResultCode(throwable.toString());
+                    telemetryClient.trackDependency(telemetry);
+                    ExceptionTelemetry exceptionTelemetry = new ExceptionTelemetry(throwable);
+                    exceptionTelemetry.setExceptionHandledAt(ExceptionHandledAt.Platform);
+                    exceptionTelemetry.setSeverityLevel(SeverityLevel.Warning);
+                    exceptionTelemetry.getContext().getOperation().setId(requestId);
+                    telemetryClient.trackException(exceptionTelemetry);
+                })
                 .putHeader("authorization", sas.token)
                 .putHeader("content-length", String.valueOf(0))
                 .end();
@@ -422,7 +483,7 @@ public class SbApi extends AbstractVerticle {
      */
     public void onSendMessage(Message message) {
         if (StringUtils.isEmpty(sendQueueName)) {
-            message.fail(500, "AbApi is not configured for sending messages");
+            message.fail(500, "SbApi is not configured for sending messages");
             return;
         }
         checkSas();
@@ -435,46 +496,53 @@ public class SbApi extends AbstractVerticle {
         final String sendQueueName = (message.headers().get("queueName") != null) ? message.headers().get("queueName") : this.sendQueueName;
 
         String apiUri = "/" + sendQueueName + "/messages" + "?api-version=2013-08";
-        Map object = Json.decodeValue((String) message.body(), Map.class);
-        String body = Json.encode(object);
+        String body = (String) message.body();
 
-        LOG.traceSendingMessageToQueue(sendQueueName, body);
+        final String requestId = RandomStringUtils.randomAlphanumeric(6);
 
-        StopWatch stopWatch = new StopWatch();
+        LOG.traceSendingMessageToQueue(sendQueueName, body, requestId);
+
+        final StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        final RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue");
+        telemetry.setCommandName("sendMessage");
+        telemetry.setDependencyKind(DependencyKind.Http);
+        telemetry.getContext().getProperties().put("queueName", sendQueueName);
+        telemetry.getContext().getOperation().setId(requestId);
 
         HttpClientRequest request = httpSendClient.post(443, namespace + SERVICEBUS_BASE_DOMAIN, apiUri, (httpClientResponse) -> {
             stopWatch.stop();
+            telemetry.setDuration(new Duration(stopWatch.getTime()));
             StringBuilder headers = new StringBuilder();
             httpClientResponse.headers().forEach(
                     (entry) -> headers.append(entry.getKey()).append(" = ").append(entry.getValue()).append("; ")
             );
             if (httpClientResponse.statusCode() == 201) {
                 // ok
-                telemetryClient.getContext().getTags().put("queueName", sendQueueName);
-                telemetryClient.trackDependency("sb.queue", "sendMessage", new Duration(stopWatch.getTime()), true);
-                telemetryClient.getContext().getTags().remove("queueName");
-                LOG.traceSentMessageToQueue(sendQueueName, body, headers.toString());
+                telemetry.setSuccess(true);
+                telemetry.setResultCode("201");
+                telemetryClient.trackDependency(telemetry);
+                LOG.traceSentMessageToQueue(sendQueueName, body, headers.toString(), requestId);
                 message.reply(null);
                 return;
             } else {
-                RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue", "sendMessage", new Duration(stopWatch.getTime()), false);
-                telemetry.setAsync(true);
-                telemetry.setDependencyKind(DependencyKind.Http);
-                telemetryClient.getContext().getTags().put("queueName", sendQueueName);
+                telemetry.setSuccess(false);
+                telemetry.setResultCode(String.valueOf(httpClientResponse.statusCode()));
                 telemetryClient.trackDependency(telemetry);
-                telemetryClient.getContext().getTags().remove("queueName");
-                LOG.cantSendServiceBusMessageBecauseOfAPIError(httpClientResponse.statusCode(), httpClientResponse.statusMessage(), headers.toString());
+                LOG.cantSendServiceBusMessageBecauseOfAPIError(httpClientResponse.statusCode(), httpClientResponse.statusMessage(), headers.toString(), requestId);
                 message.fail(httpClientResponse.statusCode(), "ServiceBus API error");
                 return;
             }
         })
                 .exceptionHandler((e) -> {
-                    RemoteDependencyTelemetry telemetry = new RemoteDependencyTelemetry("sb.queue", "sendMessage", new Duration(stopWatch.getTime()), false);
-                    telemetryClient.getContext().getTags().put("queueName", sendQueueName);
+                    telemetry.setSuccess(false);
+                    telemetry.setResultCode(e.toString());
                     telemetryClient.trackDependency(telemetry);
-                    telemetryClient.getContext().getTags().remove("queueName");
-                    LOG.cantSendServiceBusMessageBecauseOfException(e);
+                    LOG.cantSendServiceBusMessageBecauseOfException(requestId, e);
+                    ExceptionTelemetry exceptionTelemetry = new ExceptionTelemetry(e);
+                    exceptionTelemetry.setSeverityLevel(SeverityLevel.Error);
+                    exceptionTelemetry.getContext().getOperation().setId(requestId);
+                    telemetryClient.trackException(exceptionTelemetry);
                     if (e instanceof TimeoutException) {
                         // reconnect client
                         recreateSendClient();
