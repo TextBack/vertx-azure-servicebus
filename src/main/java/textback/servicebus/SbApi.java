@@ -19,6 +19,7 @@ import org.apache.commons.lang3.time.StopWatch;
 
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.TimeoutException;
 
@@ -554,6 +555,7 @@ public class SbApi extends AbstractVerticle {
                 .putHeader("content-type", "application/json")
                 .putHeader("authorization", sas != null ? sas.token : null);
         message.headers().forEach((entry) -> request.putHeader(entry.getKey(), entry.getValue()));
+        request.setTimeout(Optional.ofNullable(message.headers().get("request-timeout")).map(Long::parseLong).orElse(10000L));
         request.end(body);
     }
 
