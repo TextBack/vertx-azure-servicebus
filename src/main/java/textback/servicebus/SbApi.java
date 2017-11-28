@@ -337,6 +337,7 @@ public class SbApi extends AbstractVerticle {
                                 }
                             });
                         } catch (Exception e) {
+                            onEventBusRequestEnd();
                             eventbusProcessingTimer.stop();
                             MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", eventbusProcessingTimer.getTime());
                             mt.getContext().getOperation().setId(String.valueOf(requestId));
