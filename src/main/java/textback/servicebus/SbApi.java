@@ -345,6 +345,7 @@ public class SbApi extends AbstractVerticle {
                             mt.getProperties().put("cause", e.toString());
                             telemetryClient.trackMetric(mt);
                             releaseLock(requestId, messageUri);
+                            return;
                         }
                         // after send check throttling condition before polling next
                         if (currentRequests >= throttlingMaxRequests) {
