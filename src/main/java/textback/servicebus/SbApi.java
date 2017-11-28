@@ -299,42 +299,52 @@ public class SbApi extends AbstractVerticle {
                         StopWatch eventbusProcessingTimer = new StopWatch();
                         eventbusProcessingTimer.start();
                         final String finalAddress = address;
-                        eventBus.send(address, body, deliveryOptions, (AsyncResult<Message<Object>> result) -> {
-                            onEventBusRequestEnd();
-                            eventbusProcessingTimer.stop();
-                            MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", eventbusProcessingTimer.getTime());
-                            mt.getContext().getOperation().setId(String.valueOf(requestId));
-                            if (result.succeeded()) {
-                                mt.getProperties().put("success", "true");
-                                telemetryClient.trackMetric(mt);
-                                deleteMessage(requestId, messageUri);
-                            } else {
-                                mt.getProperties().put("success", "false");
-                                mt.getProperties().put("cause", result.cause().toString());
-                                telemetryClient.trackMetric(mt);
-                                if (result.cause() instanceof ReplyException) {
-                                    ReplyException replyException = (ReplyException) result.cause();
-                                    if (replyException.failureType() == ReplyFailure.TIMEOUT) {
-                                        switch (defaultEventbusTimeoutAction) {
-                                            case DELETE: {
-                                                LOG.traceDeletedMessageBecauseOfEventbusTimeout(requestId);
-                                                deleteMessage(requestId, messageUri);
-                                                break;
+                        try {
+                            eventBus.send(address, body, deliveryOptions, (AsyncResult<Message<Object>> result) -> {
+                                onEventBusRequestEnd();
+                                eventbusProcessingTimer.stop();
+                                MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", eventbusProcessingTimer.getTime());
+                                mt.getContext().getOperation().setId(String.valueOf(requestId));
+                                if (result.succeeded()) {
+                                    mt.getProperties().put("success", "true");
+                                    telemetryClient.trackMetric(mt);
+                                    deleteMessage(requestId, messageUri);
+                                } else {
+                                    mt.getProperties().put("success", "false");
+                                    mt.getProperties().put("cause", result.cause().toString());
+                                    telemetryClient.trackMetric(mt);
+                                    if (result.cause() instanceof ReplyException) {
+                                        ReplyException replyException = (ReplyException) result.cause();
+                                        if (replyException.failureType() == ReplyFailure.TIMEOUT) {
+                                            switch (defaultEventbusTimeoutAction) {
+                                                case DELETE: {
+                                                    LOG.traceDeletedMessageBecauseOfEventbusTimeout(requestId);
+                                                    deleteMessage(requestId, messageUri);
+                                                    break;
+                                                }
+                                                case RELEASE_LOCK:
+                                                default: {
+                                                    LOG.traceReleaseLockOnMessageBecauseOfEventbusTimeout(requestId);
+                                                    releaseLock(requestId, messageUri);
+                                                }
                                             }
-                                            case RELEASE_LOCK:
-                                            default: {
-                                                LOG.traceReleaseLockOnMessageBecauseOfEventbusTimeout(requestId);
-                                                releaseLock(requestId, messageUri);
-                                            }
+                                        } else {
+                                            releaseLock(requestId, messageUri);
                                         }
                                     } else {
                                         releaseLock(requestId, messageUri);
                                     }
-                                } else {
-                                    releaseLock(requestId, messageUri);
                                 }
-                            }
-                        });
+                            });
+                        } catch (Exception e) {
+                            eventbusProcessingTimer.stop();
+                            MetricTelemetry mt = new MetricTelemetry("eb." + finalAddress + ".processing_time", eventbusProcessingTimer.getTime());
+                            mt.getContext().getOperation().setId(String.valueOf(requestId));
+                            mt.getProperties().put("success", "false");
+                            mt.getProperties().put("cause", e.toString());
+                            telemetryClient.trackMetric(mt);
+                            releaseLock(requestId, messageUri);
+                        }
                         // after send check throttling condition before polling next
                         if (currentRequests >= throttlingMaxRequests) {
                             LOG.traceSkipPollingBecauseOfThrottling();
