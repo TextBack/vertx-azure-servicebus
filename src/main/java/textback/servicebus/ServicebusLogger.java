@@ -128,4 +128,8 @@ public interface ServicebusLogger extends BasicLogger {
     @LogMessage(level = Logger.Level.TRACE)
     @Message(format = Message.Format.MESSAGE_FORMAT, id = 9016, value = "Released lock on message because of eventbus timeout {0} ")
     void traceReleaseLockOnMessageBecauseOfEventbusTimeout(String requestId);
+
+    @LogMessage(level = Logger.Level.TRACE)
+    @Message(format = Message.Format.MESSAGE_FORMAT, id = 9017, value = "Skipped polling next because of throttling")
+    void traceSkipPollingBecauseOfThrottling();
 }
