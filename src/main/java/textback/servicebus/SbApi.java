@@ -426,13 +426,14 @@ public class SbApi extends AbstractVerticle {
                 .end();
     }
 
-    private int onEventBusRequestStart() {
-        return currentRequests++;
+    private void onEventBusRequestStart() {
+        currentRequests++;
+        return;
     }
 
     private void onEventBusRequestEnd() {
         currentRequests--;
-        if (currentRequests < throttlingMaxRequests) {
+        if (currentRequests == throttlingMaxRequests - 1) {
             peekFromQueue();
         }
     }
