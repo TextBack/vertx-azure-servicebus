@@ -180,7 +180,7 @@ public class SbApi extends AbstractVerticle {
         }
 
         if (config.containsKey("THROTTLING_MAX_REQUESTS")) {
-            throttlingMaxRequests = Integer.parseInt(config.getString("THROTTLING_MAX_REQUESTS"));
+            throttlingMaxRequests = config.getInteger("THROTTLING_MAX_REQUESTS");
         }
 
         if (invalidConfig) {
